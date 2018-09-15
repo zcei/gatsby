@@ -24,9 +24,11 @@ const { clearTypeExampleValues } = require(`./data-tree-utils`)
 
 import type { ProcessedNodeType } from "./infer-graphql-type"
 
+const internalTypesSymbol = Symbol(`processedInternalTypes`)
+
 type TypeMap = {
-  [typeName: string]: ProcessedNodeType,
-}
+  [typeName: string]: ProcessedNodeType
+} & { [typeof internalTypesSymbol]: { [typeName: string]: ProcessedNodeType } }
 
 const nodesCache = new Map()
 
@@ -34,11 +36,23 @@ module.exports = async ({ parentSpan }) => {
   const spanArgs = parentSpan ? { childOf: parentSpan } : {}
   const span = tracer.startSpan(`build schema`, spanArgs)
 
+  const allNodes = getNodes()
+
+  const internalNodes = _.filter(allNodes, (node) => (
+    node.internal && node.internal.ignoreType
+  ))
+
+  const internalTypeKeys = Object.keys(_.groupBy(
+    internalNodes,
+    node => _.camelCase(node.internal.type)
+  ))
+
   const types = _.groupBy(
-    getNodes().filter(node => node.internal && !node.internal.ignoreType),
+    allNodes,
     node => node.internal.type
   )
-  const processedTypes: TypeMap = {}
+
+  let processedTypes: TypeMap = {}
 
   clearTypeExampleValues()
 
@@ -105,6 +119,8 @@ module.exports = async ({ parentSpan }) => {
           },
         }
       } else {
+        console.log(_.map(type.nodes, `internal`))
+        console.log(childNodeType)
         defaultNodeFields[_.camelCase(`child ${childNodeType}`)] = {
           type: processedTypes[childNodeType].nodeObjectType,
           description: `The child of this node of type ${childNodeType}`,
@@ -220,6 +236,7 @@ module.exports = async ({ parentSpan }) => {
       },
     }
 
+    // TODO: only add if nodes filtered by ignoretype are not empty
     processedTypes[_.camelCase(typeName)] = proccesedType
 
     // Special case to construct linked file type used by type inferring
@@ -231,7 +248,19 @@ module.exports = async ({ parentSpan }) => {
   // Create node types and node fields for nodes that have a resolve function.
   await Promise.all(_.map(types, createType))
 
+
+  const internalMap = {}
+  _.each(internalTypeKeys, (key) => {
+    const internalType = processedTypes[key]
+    delete processedTypes[key]
+    internalMap[key] = internalType
+  })
+
+  processedTypes[internalTypesSymbol] = internalMap
+
   span.finish()
 
   return processedTypes
 }
+
+module.exports.internalTypesSymbol = internalTypesSymbol
