@@ -99,7 +99,7 @@ module.exports = async ({ parentSpan }) => {
 
       if (maxChildCount > 1) {
         defaultNodeFields[_.camelCase(`children ${childNodeType}`)] = {
-          type: new GraphQLList(processedTypes[childNodeType].nodeObjectType),
+          type: new GraphQLList((processedTypes[childNodeType] || processedTypes[internalTypesSymbol][childNodeType]).nodeObjectType),
           description: `The children of this node of type ${childNodeType}`,
           resolve(node, a, { path }) {
             const filteredNodes = node.children
@@ -119,10 +119,11 @@ module.exports = async ({ parentSpan }) => {
           },
         }
       } else {
-        console.log(_.map(type.nodes, `internal`))
+        // console.log(_.map(type.nodes, `internal`))
         console.log(childNodeType)
+        console.dir(type.nodes, { colors: true, depth: 5 })
         defaultNodeFields[_.camelCase(`child ${childNodeType}`)] = {
-          type: processedTypes[childNodeType].nodeObjectType,
+          type: (processedTypes[childNodeType] || processedTypes[internalTypesSymbol][childNodeType]).nodeObjectType,
           description: `The child of this node of type ${childNodeType}`,
           resolve(node, a, { path }) {
             const childNode = node.children
@@ -132,6 +133,8 @@ module.exports = async ({ parentSpan }) => {
               )
 
             if (childNode) {
+              console.log(`child node`)
+              console.log(childNode)
               // Add dependencies for the path
               createPageDependency({
                 path,
@@ -171,6 +174,11 @@ module.exports = async ({ parentSpan }) => {
     })
 
     const mergedFieldsFromPlugins = _.merge(...fieldsFromPlugins)
+
+    // if (Object.keys(mergedFieldsFromPlugins).length) {
+    //   console.log(`mergedFieldsFromPlugins`, typeName)
+    //   console.dir(mergedFieldsFromPlugins, { colors: true, depth: 4 })
+    // }
 
     const inferredInputFieldsFromPlugins = inferInputObjectStructureFromFields({
       fields: mergedFieldsFromPlugins,
@@ -249,14 +257,12 @@ module.exports = async ({ parentSpan }) => {
   await Promise.all(_.map(types, createType))
 
 
-  const internalMap = {}
+  processedTypes[internalTypesSymbol] = {}
   _.each(internalTypeKeys, (key) => {
     const internalType = processedTypes[key]
     delete processedTypes[key]
-    internalMap[key] = internalType
+    processedTypes[internalTypesSymbol][key] = internalType
   })
-
-  processedTypes[internalTypesSymbol] = internalMap
 
   span.finish()
 
